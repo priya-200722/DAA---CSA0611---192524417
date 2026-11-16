@@ -1,0 +1,253 @@
+import math
+def insertion_sort_alerts(alerts, stats=None):
+    """Corrected insertion sort: severity descending, stable.
+
+    alerts : list of (alert_id, severity) tuples (the input is NOT modified).
+    stats  : optional dict; 'comparisons' and 'shifts' are accumulated in it.
+    Best case O(n) (already ordered), worst/average O(n^2).
+    """
+    a = list(alerts)
+    comparisons = shifts = 0
+    for i in range(1, len(a)):
+        key = a[i]
+        j = i - 1
+        while j >= 0:                      
+            comparisons += 1
+            if a[j][1] < key[1]:          
+                a[j + 1] = a[j]
+                shifts += 1
+                j -= 1
+            else:
+                break
+        a[j + 1] = key                    
+    if stats is not None:
+        stats["comparisons"] = stats.get("comparisons", 0) + comparisons
+        stats["shifts"] = stats.get("shifts", 0) + shifts
+    return a
+
+
+def merge_sort_alerts(alerts, stats=None):
+    """Stable top-down merge sort (severity descending); O(n log n) always."""
+    counter = [0]
+
+    def merge(left, right):
+        out, i, j = [], 0, 0
+        while i < len(left) and j < len(right):
+            counter[0] += 1
+            if right[j][1] > left[i][1]:  
+                out.append(right[j]); j += 1
+            else:
+                out.append(left[i]); i += 1
+        out.extend(left[i:]); out.extend(right[j:])
+        return out
+
+    def sort(seq):
+        if len(seq) <= 1:
+            return list(seq)
+        mid = len(seq) // 2
+        return merge(sort(seq[:mid]), sort(seq[mid:]))
+
+    result = sort(alerts)
+    if stats is not None:
+        stats["comparisons"] = stats.get("comparisons", 0) + counter[0]
+    return result
+
+
+def sort_alerts(alerts):
+    """Production sort: severity descending, equal severities in arrival order.
+
+    Uses Python's Timsort (stable, adaptive): O(n) on nearly sorted input,
+    O(n log n) in the worst case.  Returns a new list; input is untouched.
+    """
+    return sorted(alerts, key=lambda alert: -alert[1])
+
+
+def is_blocked_linear(blocklist, ip, stats=None):
+    """Corrected sequential search, O(n) per query (reference version)."""
+    comparisons = 0
+    for entry in blocklist:
+        comparisons += 1
+        if entry == ip:
+            if stats is not None:
+                stats["comparisons"] = stats.get("comparisons", 0) + comparisons
+            return True                   
+    if stats is not None:                  
+        stats["comparisons"] = stats.get("comparisons", 0) + comparisons
+    return False                      
+
+
+def build_blocklist(ips):
+    """Build the lookup structure once: O(n) time, O(n) space."""
+    return frozenset(ips)
+
+
+def is_blocked(blocked, ip):
+    """True if `ip` is in the prebuilt blocklist; O(1) average per query."""
+    return ip in blocked
+
+
+
+def _scan(log, pattern):
+    """Brute-force scan; returns (hits, character_comparisons)."""
+    n, m = len(log), len(pattern)
+    if m == 0 or m > n:                   
+        return [], 0
+    hits, comparisons = [], 0
+    for i in range(n - m + 1):             
+        j = 0
+        while j < m:
+            comparisons += 1
+            if log[i + j] != pattern[j]:
+                break                    
+            j += 1
+        if j == m:                       
+            hits.append(i)
+    return hits, comparisons
+
+
+def find_signature(log, pattern):
+    """Return every start index (overlaps allowed) where `pattern` occurs in `log`.
+
+    Worst case O(n*m), best case O(n).  Empty pattern -> [] by convention.
+    """
+    return _scan(log, pattern)[0]
+
+
+
+def closest_logins_brute(events, stats=None):
+    """Corrected brute force: every unordered pair once, O(n^2) pairs.
+
+    Returns ((i, j), distance) with i < j, or (None, None) if fewer than 2 events.
+    """
+    n = len(events)
+    best_d2, pair, evaluated = math.inf, None, 0    
+    for i in range(n):
+        for j in range(i + 1, n):                   
+            evaluated += 1
+            d2 = (events[i][0] - events[j][0]) ** 2 + (events[i][1] - events[j][1]) ** 2
+            if d2 < best_d2:                         
+                best_d2, pair = d2, (i, j)
+    if stats is not None:
+        stats["distance_computations"] = evaluated
+    return (pair, math.sqrt(best_d2)) if pair else (None, None)
+
+
+def closest_logins(events, stats=None):
+    """Optimised closest pair: same output as closest_logins_brute.
+
+    * every pair examined at most once (j after i in x-sorted order)
+    * squared distances only - one sqrt at the very end
+    * pruning: points are sorted by x; once (dx)^2 exceeds the best squared
+      distance no later point can be closer, so the inner loop stops.
+    * ties: the lexicographically smallest (i, j) wins, exactly as the brute force.
+    Expected O(n log n) for spread-out data; worst case O(n^2) (e.g. all x equal).
+    """
+    n = len(events)
+    if n < 2:
+        if stats is not None:
+            stats["distance_computations"] = 0
+        return None, None
+    order = sorted(range(n), key=lambda k: events[k][0])
+    best_d2, best_pair, evaluated = math.inf, None, 0
+    for a in range(n):
+        ia = order[a]
+        xa, ya = events[ia]
+        for b in range(a + 1, n):
+            ib = order[b]
+            dx = events[ib][0] - xa
+            if dx * dx > best_d2:                    
+                break                              
+            evaluated += 1
+            dy = events[ib][1] - ya
+            d2 = dx * dx + dy * dy
+            cand = (ia, ib) if ia < ib else (ib, ia)
+            if d2 < best_d2 or (d2 == best_d2 and cand < best_pair):
+                best_d2, best_pair = d2, cand
+    if stats is not None:
+        stats["distance_computations"] = evaluated
+    return best_pair, math.sqrt(best_d2)
+
+
+
+def run_tests():
+    """Check every function on the given test data and on boundary cases."""
+    import random
+    passed = 0
+
+    def check(name, got, expected):
+        nonlocal passed
+        assert got == expected, f"FAIL {name}: got {got!r}, expected {expected!r}"
+        passed += 1
+        print(f"  PASS  {name}")
+
+    alerts = [("A1", 3), ("A2", 9), ("A3", 5), ("A4", 9), ("A5", 1)]
+    blocklist = ["10.0.0.5", "10.0.0.9", "172.16.4.2"]
+    events = [(2, 3), (12, 30), (40, 50), (5, 1), (12, 10), (3, 4)]
+    want = [("A2", 9), ("A4", 9), ("A3", 5), ("A1", 3), ("A5", 1)]
+
+    print("sort_alerts")
+    for fn in (insertion_sort_alerts, merge_sort_alerts, sort_alerts):
+        check(f"{fn.__name__} given data", fn(alerts), want)
+        check(f"{fn.__name__} empty", fn([]), [])
+        check(f"{fn.__name__} single", fn([("X", 4)]), [("X", 4)])
+        check(f"{fn.__name__} all equal (stable)", fn([("a", 2), ("b", 2), ("c", 2)]),
+              [("a", 2), ("b", 2), ("c", 2)])
+        check(f"{fn.__name__} already ordered", fn(want), want)
+        check(f"{fn.__name__} reverse order", fn(want[::-1]),
+              [("A5", 1)][:0] + [("A4", 9), ("A2", 9), ("A3", 5), ("A1", 3), ("A5", 1)])
+    check("input list not modified", alerts,
+          [("A1", 3), ("A2", 9), ("A3", 5), ("A4", 9), ("A5", 1)])
+    rnd = [(f"E{k}", random.randint(1, 5)) for k in range(500)]
+    check("3 sorts agree on 500 random alerts (stability)",
+          insertion_sort_alerts(rnd) == merge_sort_alerts(rnd) == sort_alerts(rnd), True)
+
+    print("is_blocked")
+    blocked = build_blocklist(blocklist)
+    for ip, exp in [("10.0.0.9", True), ("10.0.0.5", True), ("172.16.4.2", True),
+                    ("8.8.8.8", False)]:
+        check(f"is_blocked({ip})", is_blocked(blocked, ip), exp)
+        check(f"is_blocked_linear({ip})", is_blocked_linear(blocklist, ip), exp)
+    check("empty blocklist", is_blocked(build_blocklist([]), "1.1.1.1"), False)
+    check("empty blocklist (linear)", is_blocked_linear([], "1.1.1.1"), False)
+    check("last element found", is_blocked_linear(blocklist, "172.16.4.2"), True)
+
+    print("find_signature")
+    check("given data", find_signature("FAILFAIXFAIL", "FAIL"), [0, 8])
+    check("pattern at very end", find_signature("xxFAIL", "FAIL"), [2])
+    check("false start FAIX not reported", 4 in find_signature("FAILFAIXFAIL", "FAIL"), False)
+    check("pattern longer than log", find_signature("ab", "abc"), [])
+    check("pattern equals log", find_signature("abc", "abc"), [0])
+    check("overlapping hits", find_signature("aaaa", "aa"), [0, 1, 2])
+    check("empty log", find_signature("", "a"), [])
+    check("empty pattern", find_signature("abc", ""), [])
+    check("no occurrence", find_signature("abcabc", "xyz"), [])
+    check("single character", find_signature("abcab", "b"), [1, 4])
+    for _ in range(200):                              # cross-check against str.find
+        s = "".join(random.choice("AB") for _ in range(random.randint(0, 30)))
+        p = "".join(random.choice("AB") for _ in range(random.randint(1, 4)))
+        ref = [k for k in range(len(s) - len(p) + 1) if s.startswith(p, k)]
+        assert find_signature(s, p) == ref
+    check("200 random logs vs str.startswith reference", True, True)
+
+    print("closest_logins")
+    exp_pair, exp_dist = (0, 5), math.sqrt(2)
+    for fn in (closest_logins_brute, closest_logins):
+        pair, dist = fn(events)
+        check(f"{fn.__name__} given data pair", pair, exp_pair)
+        check(f"{fn.__name__} given data distance", math.isclose(dist, exp_dist), True)
+        check(f"{fn.__name__} empty", fn([]), (None, None))
+        check(f"{fn.__name__} one event", fn([(1, 1)]), (None, None))
+        check(f"{fn.__name__} two events", fn([(0, 0), (3, 4)]), ((0, 1), 5.0))
+        check(f"{fn.__name__} duplicate points", fn([(1, 1), (9, 9), (1, 1)]), ((0, 2), 0.0))
+        check(f"{fn.__name__} equal-distance tie -> first pair",
+              fn([(0, 0), (1, 0), (5, 5), (6, 5)])[0], (0, 1))
+    for _ in range(300):                              # optimised == brute force, ties included
+        pts = [(random.randint(0, 15), random.randint(0, 15))
+               for _ in range(random.randint(2, 40))]
+        assert closest_logins(pts) == closest_logins_brute(pts)
+    check("300 random batches: optimised == brute force", True, True)
+    print(f"\nAll {passed} checks passed.")
+
+
+if __name__ == "__main__":
+    run_tests()
